@@ -9,7 +9,7 @@
 // libcanard
 CanardInstance canard_instance;
 static const uint16_t HeartbeatSubjectID = 7509;
-volatile boolean do_publish_heartbeat = false;
+static const uint16_t DummySubjectID = 1914;
 
 // Seeed-Studio/CAN_BUS_Shield
 const int SPI_CS_PIN = 53;
@@ -19,7 +19,8 @@ MCP_CAN CAN(SPI_CS_PIN);
 const int led_pin = PB7;
 
 //Counter and compare values for 1Hz timer interrupt
-const uint16_t tl_comp = 15625;
+const uint16_t t4_comp = 15625;
+volatile boolean do_publish_heartbeat = false;
 
 // Memory management for libcanard
 static void *canardAllocate(CanardInstance *const ins, const size_t amount)
@@ -44,6 +45,26 @@ void setup()
     canard_instance.mtu_bytes = CANARD_MTU_CAN_CLASSIC; // Do not use CAN FD to enhance compatibility.
     canard_instance.node_id = (CanardNodeID)NODE_ID;
 
+    //Subsciptions
+
+    // Subscribe to messages uavcan.node.Heartbeat.
+    CanardRxSubscription heartbeat_subscription;
+    (void)canardRxSubscribe(&canard_instance, //
+                            CanardTransferKindMessage,
+                            HeartbeatSubjectID,
+                            7,
+                            CANARD_DEFAULT_TRANSFER_ID_TIMEOUT_USEC,
+                            &heartbeat_subscription);
+
+    // Subcribe to dummy message
+    CanardRxSubscription dummy_subscription;
+    (void)canardRxSubscribe(&canard_instance,
+                            CanardTransferKindMessage,
+                            DummySubjectID,
+                            0,
+                            CANARD_DEFAULT_TRANSFER_ID_TIMEOUT_USEC,
+                            &dummy_subscription);
+
     Serial.begin(115200);
 
     // Initialize the CAN bus module
@@ -60,11 +81,12 @@ void setup()
 // the loop function runs over and over again forever
 void loop()
 {
-    if (do_publish_heartbeat) {
+    if (do_publish_heartbeat)
+    {
         publishHeartbeat(0);
         do_publish_heartbeat = false;
     }
-    
+
     // Transmit pending frames.
     const CanardFrame *txf = canardTxPeek(&canard_instance);
     while (txf != NULL)
@@ -73,6 +95,27 @@ void loop()
         canardTxPop(&canard_instance);
         free((void *)txf);
         txf = canardTxPeek(&canard_instance);
+    }
+
+    // Process received frames, if any.
+    CanardFrame rxf;
+    uint8_t buffer[64];
+    //while (socketcanPop(sock, &rxf, sizeof(buffer), buffer, 1000) > 0)  // Error handling not implemented
+    if (canRecieve(&rxf))
+    {
+
+        Serial.println("*****************");
+        CanardTransfer transfer;
+        if (canardRxAccept(&canard_instance, &rxf, 0, &transfer))
+        {
+            if ((transfer.transfer_kind == CanardTransferKindMessage) &&
+                (transfer.port_id == HeartbeatSubjectID))
+            {
+                Serial.print("Hearbeat Recieved\n");
+            }
+            free((void *)transfer.payload);
+        }
+        Serial.println("*****************");
     }
 }
 
@@ -102,7 +145,7 @@ void setupOneHertzTimer()
 
     // Reset Timer4 and set compare values
     TCNT4 = 0;
-    OCR4A = tl_comp;
+    OCR4A = t4_comp;
 
     // Enalble Timer4 and set compare value
     TIMSK4 = (1 << OCIE4A);
@@ -140,4 +183,44 @@ int canTransmit(const CanardFrame *frame)
 {
     byte cansSendStatus = CAN.sendMsgBuf(frame->extended_can_id, 1, frame->payload_size, frame->payload);
     return cansSendStatus;
+}
+
+int canRecieve(CanardFrame *out_frame)
+{
+    int receiver_state = CAN.checkReceive();
+
+    if (CAN_NOMSG == receiver_state)
+    {
+        return 0;
+    }
+
+    if (CAN_MSGAVAIL == receiver_state)
+    {
+        unsigned char len = 0;
+        unsigned char buf[64];
+
+        // check if data coming
+        CAN.readMsgBuf(&len, buf);
+
+        out_frame->extended_can_id = CAN.getCanId();
+        out_frame->payload_size = len;
+        out_frame->payload = buf;
+
+        unsigned long canId = CAN.getCanId();
+
+        Serial.println("-----------------------------");
+        Serial.print("Get data from ID: 0x");
+        Serial.println(canId, HEX);
+
+        for (int i = 0; i < len; i++)
+        { // print the data
+            Serial.print(buf[i], HEX);
+            Serial.print("\t");
+        }
+        Serial.println();
+
+        return 1;
+    }
+
+    return -1;
 }

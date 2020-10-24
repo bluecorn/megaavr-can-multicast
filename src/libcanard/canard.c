@@ -1051,17 +1051,17 @@ int8_t canardRxAccept(CanardInstance* const    ins,
                 }
                 else
                 {
-                    out = 0;  // No matching subscription.
+                    out = -1;  // No matching subscription.
                 }
             }
             else
             {
-                out = 0;  // Mis-addressed frame (normally it should be filtered out by the hardware).
+                out = -2;  // Mis-addressed frame (normally it should be filtered out by the hardware).
             }
         }
         else
         {
-            out = 0;  // A non-UAVCAN/CAN input frame.
+            out = -3;  // A non-UAVCAN/CAN input frame.
         }
     }
     CANARD_ASSERT(out <= 1);
