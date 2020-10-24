@@ -99,8 +99,6 @@ void loop()
 
     // Process received frames, if any.
     CanardFrame rxf;
-    uint8_t buffer[64];
-    //while (socketcanPop(sock, &rxf, sizeof(buffer), buffer, 1000) > 0)  // Error handling not implemented
     if (canRecieve(&rxf))
     {
 
@@ -197,7 +195,7 @@ int canRecieve(CanardFrame *out_frame)
     if (CAN_MSGAVAIL == receiver_state)
     {
         unsigned char len = 0;
-        unsigned char buf[64];
+        static unsigned char buf[64];
 
         // check if data coming
         CAN.readMsgBuf(&len, buf);
@@ -218,6 +216,7 @@ int canRecieve(CanardFrame *out_frame)
             Serial.print("\t");
         }
         Serial.println();
+        Serial.flush();
 
         return 1;
     }
